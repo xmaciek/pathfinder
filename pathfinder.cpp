@@ -33,6 +33,22 @@ public:
     typedef std::vector<DataPtr> Path;
     typedef std::function<int64_t( const T&, const T& )> DistanceFunction;
 
+    class PathInfo {
+    public:
+        DataPtr m_endPoint;
+        Path m_path;
+        PathInfo( const DataPtr& p ) : m_endPoint( p ) {};
+        bool operator < ( const PathInfo& v ) const
+        {
+            if ( !m_endPoint || !v.m_endPoint ) {
+                return false;
+            }
+            return *m_endPoint < *v.m_endPoint;
+        }
+        // tells wheter path to end point exists from here
+        bool pathExists() const { return !m_path.empty(); }
+    };
+
 protected:
     bool m_isLocked;
     DataPtr m_dataPtr;
@@ -43,18 +59,6 @@ protected:
     Path m_shortestPath;
     int64_t m_minDistance;
 
-    class PathInfo {
-    public:
-        DataPtr m_endPoint;
-        Path m_path;
-        PathInfo( const DataPtr& p ) : m_endPoint( p ) {};
-        bool operator < ( const PathInfo& v ) const
-        {
-            assert( m_endPoint );
-            assert( v.m_endPoint );
-            return *m_endPoint < *v.m_endPoint;
-        }
-    };
     std::set<PathInfo> m_traveledPathSet;
 
 public:
@@ -182,10 +186,10 @@ public:
         }
     }
 
-    Path cacheLookup( const Node<T>::DataPtr& t ) const
+    PathInfo cacheLookup( const Node<T>::DataPtr& t ) const
     {
         auto it = m_traveledPathSet.find( t );
-        return it != m_traveledPathSet.end() ? it->m_path : Path();
+        return it != m_traveledPathSet.end() ? *it : PathInfo( nullptr );
     }
 
     // comarsion function for std::set
@@ -252,7 +256,7 @@ int64_t Point::manhattan( const Point& a, const Point& b )
 
 
 
-
+// class meant to print duration of code execution
 class TimeStamp {
 public:
     TimeStamp();
@@ -295,6 +299,8 @@ public:
     PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, int64_t mapHeight );
     ~PathFinder();
     typedef std::vector< std::shared_ptr<Point> > Path;
+
+    // returns length of path (excluding start point), or -1 if not found
     int64_t findPath( const Point& start, const Point& end, Path* pathOut );
 
 };
@@ -374,13 +380,9 @@ PathFinder::PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, in
     }
 }
 
-
-
 int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::Path* pathOut )
 {
     assert( pathOut );
-
-    std::lock_guard<std::mutex> lockGuard( m_mutex );
 
     if ( !isPointOnMap( start, m_mapWidth, m_mapHeight ) ) {
         std::cerr << "Start position is outside of map boundaries or is an obstacle... ";
@@ -391,8 +393,15 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
         return -1;
     }
 
-    auto node = m_waypointSet.find( std::make_shared<NodePoint>( start ) );
-    if ( node == m_waypointSet.end() ) {
+    std::lock_guard<std::mutex> lockGuard( m_mutex );
+
+    auto startNode = m_waypointSet.find( std::make_shared<NodePoint>( start ) );
+    if ( startNode == m_waypointSet.end() ) {
+        return -1;
+    }
+
+    auto endNode = m_waypointSet.find( std::make_shared<NodePoint>( end ) );
+    if ( endNode == m_waypointSet.end() ) {
         return -1;
     }
 
@@ -400,10 +409,11 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
     {
         std::cout << "Browsing cache... ";
         TimeStamp ts;
-        *pathOut = (*node)->cacheLookup( std::make_shared<Point>( end ) );
-        if ( !pathOut->empty() ) {
+        NodePoint::PathInfo pi = (*startNode)->cacheLookup( std::make_shared<Point>( end ) );
+        if ( pi.pathExists() ) {
             std::cout << "found, skipping search ";
             // we do not want the starting point to be included, right?
+            *pathOut = pi.m_path;
             pathOut->erase( pathOut->begin() );
             return pathOut->size();
         } else {
@@ -411,7 +421,7 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
         }
     }
 
-    // to align search order by shortest manhattan distance
+    // align search order by shortest manhattan distance
     {
         std::cout << "Preparing search... ";
         TimeStamp ts;
@@ -424,7 +434,7 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
     {
         std::cout << "Searching... ";
         TimeStamp ts;
-        path = (*node)->findData( std::make_shared<NodePoint>( end ) );
+        path = (*startNode)->findData( *endNode );
         *pathOut = path;
     }
 
@@ -511,7 +521,7 @@ int main( int argc, char** argv )
 //         const int64_t size = 3000;
 //         std::vector<bool> data2( size * size );
 //         std::fill( data2.begin(), data2.end(), 1 );
-// 
+//
 //         PathFinder pathFinder( &data2, size, size );
 //         pathLength1 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path1 );
 // //         pathLength2 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path2 );
