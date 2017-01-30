@@ -293,8 +293,10 @@ int main( int argc, char** argv )
                                      1, 0, 1, 0, 0, 1, 0, 1,
                                      1, 1, 1, 1, 0, 1, 1, 1 };
     int size = 400;
-    const std::vector<bool> data2( size * size );
-    PathFinder pathFinder( &data, 8, 5 );
+    std::vector<bool> data2( size * size );
+    std::fill( data2.begin(), data2.end(), 1 );
+//     PathFinder pathFinder( &data, 8, 5 );
+    PathFinder pathFinder( &data2, size, size );
     PathFinder::Path path;
     const int64_t pathLength = pathFinder.findPath( Point( 0, 0 ), Point( 7, 4 ), &path );
     printPathInfo( pathLength, path );
