@@ -43,6 +43,20 @@ protected:
     Path m_shortestPath;
     int64_t m_minDistance;
 
+    class PathInfo {
+    public:
+        DataPtr m_endPoint;
+        Path m_path;
+        PathInfo( const DataPtr& p ) : m_endPoint( p ) {};
+        bool operator < ( const PathInfo& v ) const
+        {
+            assert( m_endPoint );
+            assert( v.m_endPoint );
+            return *m_endPoint < *v.m_endPoint;
+        }
+    };
+    std::set<PathInfo> m_traveledPathSet;
+
 public:
     Node( const T& p ) :
         m_isLocked( false ),
@@ -72,6 +86,11 @@ public:
         assert( p );
         assert( m_dataPtr );
         assert( m_minDistance > -1 );
+
+        auto it = m_traveledPathSet.find( PathInfo( m_dataPtr ) );
+        if ( it != m_traveledPathSet.end() ) {
+            return it->m_path;
+        }
 
         if ( !m_shortestPath.empty() ) {
             return m_shortestPath;
@@ -133,10 +152,40 @@ public:
         } );
     }
 
-    void completeSearch()
+    void completeSearch( Path& path )
     {
         m_minDistance = -1;
         m_shortestPath.clear();
+        backprogatePath( path );
+    }
+
+    // cache path back to nodes for next succesive search
+    void backprogatePath( Path& path )
+    {
+        if ( path.empty() || path.front() != m_dataPtr ) {
+            return;
+        }
+
+        PathInfo pi( path.back() );
+        if ( m_traveledPathSet.find( pi ) != m_traveledPathSet.end() ) {
+            return;
+        }
+        pi.m_path = path;
+        m_traveledPathSet.insert( pi );
+        path.erase( path.begin() );
+        if ( path.empty() ) {
+            return;
+        }
+
+        for ( auto& adj : m_adjecentNodeVector ) {
+            adj->backprogatePath( path );
+        }
+    }
+
+    Path cacheLookup( const Node<T>::DataPtr& t ) const
+    {
+        auto it = m_traveledPathSet.find( t );
+        return it != m_traveledPathSet.end() ? it->m_path : Path();
     }
 
     // comarsion function for std::set
@@ -149,12 +198,7 @@ public:
         return *(a->m_dataPtr) < *(b->m_dataPtr);
     }
 
-    static bool cmpLT2( Node<T>::Ptr a, Node<T>::Ptr, const T& b )
-    {
-        assert( a );
-        assert( a->m_dataPtr );
-        return *(a->m_dataPtr) < b;
-    }
+
 };
 
 
@@ -352,6 +396,21 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
         return -1;
     }
 
+    // peeking at the cache
+    {
+        std::cout << "Browsing cache... ";
+        TimeStamp ts;
+        *pathOut = (*node)->cacheLookup( std::make_shared<Point>( end ) );
+        if ( !pathOut->empty() ) {
+            std::cout << "found, skipping search ";
+            // we do not want the starting point to be included, right?
+            pathOut->erase( pathOut->begin() );
+            return pathOut->size();
+        } else {
+            std::cout << "not found ";
+        }
+    }
+
     // to align search order by shortest manhattan distance
     {
         std::cout << "Preparing search... ";
@@ -361,20 +420,23 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
         }
     }
 
+    PathFinder::Path path;
     {
         std::cout << "Searching... ";
         TimeStamp ts;
-        *pathOut = (*node)->findData( std::make_shared<NodePoint>( end ) );
+        path = (*node)->findData( std::make_shared<NodePoint>( end ) );
+        *pathOut = path;
     }
 
-    // finalize searching, clearing up caches
+    // finalize searching, making cache for next search
     {
-        std::cout << "Postsearch cleanup... ";
+        std::cout << "Postsearch activity... ";
         TimeStamp ts;
         for ( auto& n : m_waypointSet ) {
-            n->completeSearch();
+            n->completeSearch( path );
         }
     }
+
     if ( pathOut->empty() ) {
         return -1;
     }
@@ -423,8 +485,8 @@ static void printPathInfo( int64_t pathLength, const PathFinder::Path& path )
 int main( int argc, char** argv )
 {
 
-    PathFinder::Path path;
-    int64_t pathLength;
+    PathFinder::Path path1, path2;
+    int64_t pathLength1, pathLength2;
 
     {
         const std::vector<bool> data = {
@@ -440,20 +502,25 @@ int main( int argc, char** argv )
             1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1
         };
         PathFinder pathFinder( &data, 16, 10 );
-        pathLength = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path );
+        pathLength1 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path1 );
+//         pathLength2 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path2 );
     }
+
+//     // extreme stress test?
 //     {
 //         const int64_t size = 3000;
 //         std::vector<bool> data2( size * size );
 //         std::fill( data2.begin(), data2.end(), 1 );
-
+// 
 //         PathFinder pathFinder( &data2, size, size );
-//         pathLength = pathFinder.findPath( Point( 0, 0 ), Point( size-1, size-1 ), &path );
+//         pathLength1 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path1 );
+// //         pathLength2 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path2 );
 //     }
 
 
     std::cout << "Input data and exact path data will be released at the program exit." << std::endl;
-    printPathInfo( pathLength, path );
+    printPathInfo( pathLength1, path1 );
+//     printPathInfo( pathLength2, path2 );
 
     return 0;
 }
