@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -19,34 +20,30 @@
 // helper class meant to automatically release lock when leaving scope
 class TravelLock {
 public:
-    typedef std::function<void()> Function;
-    TravelLock( TravelLock::Function lock, TravelLock::Function unlock );
+    TravelLock( bool& b );
     ~TravelLock();
 
 protected:
-    TravelLock::Function m_unlock;
+    bool& m_lock;
 
 private:
     TravelLock( const TravelLock& );
     TravelLock& operator = ( const TravelLock& );
 };
 
-TravelLock::TravelLock( TravelLock::Function lock, TravelLock::Function unlock ) :
-    m_unlock( unlock )
+TravelLock::TravelLock( bool& b ) :
+    m_lock( b )
 {
-    assert( lock );
-    assert( unlock );
-    // NOTE: may get horribly wrong when binded to member function and object got destroyed
-    lock();
+    b = true;
 }
 
 TravelLock::~TravelLock()
 {
-    m_unlock();
+    m_lock = false;
 }
 
 template<typename T>
-class Node : public std::enable_shared_from_this<Node<T>> {
+class Node {
 public:
     typedef std::shared_ptr<Node<T>> Ptr;
     typedef std::shared_ptr<T> DataPtr;
@@ -57,10 +54,11 @@ public:
     public:
         enum Enum { Invalid, Found, NotFound };
 
+        bool m_isShortest;
         DataPtr m_endPoint;
         Path m_path;
 
-        PathInfo( const DataPtr& p = nullptr ) : m_endPoint( p ) {};
+        PathInfo( const DataPtr& p = nullptr ) : m_isShortest( false ), m_endPoint( p ) {};
 
         operator Enum() const
         {
@@ -71,6 +69,18 @@ public:
             } else {
                 return Found;
             }
+        }
+
+        // NOTE: 0 as result means PathInfo is invalid or path doesn't exists,
+        // use cast operator to say which one
+        uint64_t score() const
+        {
+            return ( m_endPoint && !m_path.empty() ) ? std::numeric_limits<uint64_t>::max() - m_path.size() : 0;
+        }
+
+        uint64_t size() const
+        {
+            return m_path.size();
         }
 
         bool operator < ( const PathInfo& v ) const
@@ -85,26 +95,33 @@ public:
         {
             m_path = p;
         }
+
+        // tells if path is best possible path, equal to manhattan distance from start to end
+        bool isShortest() const
+        {
+            return m_isShortest;
+        }
+
+        void setShortest( bool b ) {
+            m_isShortest = b;
+        }
     };
 
 protected:
     bool m_isLocked;
     DataPtr m_dataPtr;
     std::vector<Node<T>::Ptr> m_adjecentNodeVector;
+    DistanceFunction m_distanceFunction;
 
-    // m_shortestPath is set only when distance is equal to manhattan distance,
-    // this works as cache so we do not have to traverse again this node.
-    Path m_shortestPath;
     int64_t m_minDistance;
 
-    // basically a cache of shortest found paths
-    std::set<PathInfo> m_traveledPathSet;
+    // basically a cache of found paths, so we do not have to traverse again this node
+    std::set<Node<T>::PathInfo> m_traveledPathSet;
 
-    typedef std::function<bool( const Node<T>::Ptr&, const Node<T>::Ptr& )> CompareFunction;
-
-    // returns set of node which can be traversed, needed to predict if destination point can be founded
-    // this function has to be used with isReachable();
-    void getTraversableScope( std::set<Node<T>*>* s )
+    // NOTE: appends vector of nodes which can be traversed,
+    // needed to predict if destination point can be founded.
+    // this function has to be used within isReachable();
+    void getTraversableScope( std::vector<Node<T>*>* s )
     {
         assert( s );
         if ( isLocked() ) {
@@ -112,7 +129,7 @@ protected:
         }
         lock();
 
-        s->insert( this );
+        s->push_back( this );
         for ( auto& adj : m_adjecentNodeVector ) {
             assert( adj );
             adj->getTraversableScope( s );
@@ -123,7 +140,27 @@ protected:
     inline void unlock() { m_isLocked = false; }
     inline bool isLocked() const { return m_isLocked; }
 
-    std::shared_ptr< Node<T> > getPtr() { return this->shared_from_this(); }
+    // align search order by shortest manhattan distance
+    void prepareSearch( const T& t )
+    {
+        assert( m_dataPtr );
+        assert( m_distanceFunction );
+
+        // already aligned
+        if ( m_minDistance != -1 ) {
+            return;
+        }
+        m_minDistance = m_distanceFunction( *m_dataPtr, t );
+        std::sort( m_adjecentNodeVector.begin(), m_adjecentNodeVector.end(), [t,this]( auto& a, auto& b )
+        {
+            assert( a );
+            assert( b );
+            assert( a->m_dataPtr );
+            assert( b->m_dataPtr );
+            assert( this->m_distanceFunction );
+            return this->m_distanceFunction( *(a->m_dataPtr), t ) < this->m_distanceFunction( *(b->m_dataPtr), t );
+        } );
+    }
 
 public:
     Node( const T& p ) :
@@ -140,31 +177,41 @@ public:
         m_adjecentNodeVector.push_back( n );
     };
 
-    void cacheUnreachable( const Ptr& endPoint )
+
+    void cachePath( const Node<T>::PathInfo& p )
     {
-        m_traveledPathSet.insert( PathInfo( endPoint->m_dataPtr ) );
+        assert( m_traveledPathSet.find( p ) == m_traveledPathSet.end() );
+        m_traveledPathSet.insert( p );
     }
 
-    DataPtr data() const
-    {
-        return m_dataPtr;
-    }
-
-    // the endPoint may exist, but not be rachable from current position
+    // NOTE: the endPoint may exist, but not be rachable from current position
+    // in such case its pointless to brute-force search for it
     bool isReachable( const Node<T>::Ptr& endPoint )
     {
         assert( endPoint );
-        std::set<Node<T>*> traversableScope;
+        std::vector<Node<T>*> traversableScope;
         getTraversableScope( &traversableScope );
-        const bool found = traversableScope.find( endPoint.get() ) != traversableScope.end();
+        std::sort( traversableScope.begin(), traversableScope.end() );
+        const bool found = std::binary_search( traversableScope.begin(), traversableScope.end(), endPoint.get() );
+        const PathInfo unreachablePoint( endPoint->m_dataPtr );
         for ( auto& node : traversableScope ) {
+            assert( node );
+            // already mark it as not found
+            if ( !found ) {
+                node->cachePath( unreachablePoint );
+            }
             node->unlock();
         }
         return found;
     }
 
+    Node<T>::DataPtr data() const
+    {
+        return m_dataPtr;
+    }
+
     // NOTE: meant to be called in ~PathFinder(), otherwise we get memory leak.
-    // this is due to Nodes beign held as shared pointers by PathFiner, and they hold
+    // this is due to Nodes beign held as shared pointers by PathFinder, and they hold
     // same shared pointers to each other as adjecent nodes.
     void reset()
     {
@@ -172,110 +219,76 @@ public:
         m_adjecentNodeVector.clear();
     }
 
-    Path findData( Ptr p )
+    PathInfo findData( const Node<T>::Ptr& p )
     {
         assert( p );
         assert( m_dataPtr );
-        assert( m_minDistance > -1 );
 
-        auto it = m_traveledPathSet.find( PathInfo( p->m_dataPtr ) );
-        if ( it != m_traveledPathSet.end() ) {
-            return it->m_path;
+        if ( isLocked() ) {
+            return PathInfo();
         }
 
-        if ( !m_shortestPath.empty() ) {
-            return m_shortestPath;
+        TravelLock travelLock( m_isLocked );
+
+        PathInfo pi = cacheLookup( p->m_dataPtr );
+        if ( pi != PathInfo::Invalid ) {
+            return pi;
         }
 
+        // is equal
         if ( *m_dataPtr == *(p->m_dataPtr) ) {
-            m_shortestPath = { m_dataPtr };
-            return m_shortestPath;
+            pi = PathInfo( m_dataPtr );
+            pi.setPath( { m_dataPtr } );
+            pi.setShortest( true );
+            cachePath( pi );
+            return pi;
         }
 
-        if ( m_isLocked ) {
-            return Path();
-        }
-
-        TravelLock travelLock( std::bind( &Node<T>::lock, this ), std::bind( &Node<T>::unlock, this ) );
-
-        Path adjecentPath;
-        bool foundShortest = false;
+        // start searching
+        PathInfo adjecentPath;
+        prepareSearch( *(p->m_dataPtr) );
         for ( auto& direction : m_adjecentNodeVector ) {
-            Path tmp = direction->findData( p );
-            if ( tmp.empty() ) {
+            PathInfo tmp = direction->findData( p );
+            if ( tmp == PathInfo::Invalid ) {
                 continue;
             }
-            if ( ( adjecentPath.empty() ) || tmp.size() < adjecentPath.size() ) {
-                std::swap( tmp, adjecentPath );
-            }
-            if ( adjecentPath.size() == m_minDistance ) {
-                foundShortest = true;
+            if ( tmp.isShortest() ) {
+                adjecentPath = tmp;
                 break;
             }
+            if ( tmp.score() > adjecentPath.score() ) {
+                std::swap( tmp, adjecentPath );
+            }
         }
 
-        if ( adjecentPath.empty() ) {
-            return Path();
+        // intrepret search result
+        switch ( adjecentPath ) {
+            case PathInfo::Found:
+                adjecentPath.m_path.insert( adjecentPath.m_path.begin(), m_dataPtr );
+                adjecentPath.setShortest( adjecentPath.size() == static_cast<uint64_t>( m_minDistance + 1 ) );
+            case PathInfo::NotFound:
+                cachePath( adjecentPath );
+            case PathInfo::Invalid:
+                break;
+            default:
+                assert( !"Unhandled enum" );
         }
-
-
-        Path path = { m_dataPtr };
-        path.insert( path.end(), adjecentPath.begin(), adjecentPath.end() );
-        if ( foundShortest ) {
-            m_shortestPath = path;
-        }
-        return path;
+        return adjecentPath;
     }
 
-    void prepareSearch( const T& t, DistanceFunction distanceFunction )
+    void setDistanceFunction( const DistanceFunction& distanceFunction )
     {
-        assert( m_dataPtr );
-        assert( distanceFunction );
-        m_minDistance = distanceFunction( *m_dataPtr, t );
-        std::sort( m_adjecentNodeVector.begin(), m_adjecentNodeVector.end(), [t, distanceFunction]( auto& a, auto& b )
-        {
-            assert( a );
-            assert( b );
-            assert( a->m_dataPtr );
-            assert( b->m_dataPtr );
-            assert( distanceFunction );
-            return distanceFunction( *(a->m_dataPtr), t ) < distanceFunction( *(b->m_dataPtr), t );
-        } );
+        m_distanceFunction = distanceFunction;
     }
 
-    void completeSearch( Path& path )
+    void completeSearch()
     {
         m_minDistance = -1;
-        m_shortestPath.clear();
-        backpropagatePath( path );
     }
 
-    // cache path back to nodes for next succesive search
-    void backpropagatePath( Path& path )
+    Node<T>::PathInfo cacheLookup( const Node<T>::DataPtr& t ) const
     {
-        if ( path.empty() || path.front() != m_dataPtr ) {
-            return;
-        }
-
-        PathInfo pi( path.back() );
-        if ( m_traveledPathSet.find( pi ) != m_traveledPathSet.end() ) {
-            return;
-        }
-        pi.setPath( path );
-        m_traveledPathSet.insert( pi );
-        path.erase( path.begin() );
-        if ( path.empty() ) {
-            return;
-        }
-
-        for ( auto& adj : m_adjecentNodeVector ) {
-            adj->backpropagatePath( path );
-        }
-    }
-
-    PathInfo cacheLookup( const Node<T>::DataPtr& t ) const
-    {
-        auto it = m_traveledPathSet.find( t );
+        const auto it = m_traveledPathSet.find( t );
         return it != m_traveledPathSet.end() ? *it : PathInfo();
     }
 
@@ -298,7 +311,7 @@ public:
 
 
 
-class Point : public std::enable_shared_from_this<Point> {
+class Point {
 protected:
     int64_t m_x, m_y, m_index;
 
@@ -307,7 +320,6 @@ public:
     inline int64_t x() const { return m_x; }
     inline int64_t y() const { return m_y; }
     inline int64_t index() const { return m_index; }
-    std::shared_ptr<Point> getPtr();
     bool operator == ( const Point& p ) const;
     bool operator < ( const Point& p ) const;
 
@@ -319,13 +331,6 @@ Point::Point( int64_t x, int64_t y, int64_t index ) :
     m_y( y ),
     m_index( index )
 {
-}
-
-std::shared_ptr<Point> Point::getPtr()
-{
-    std::shared_ptr<Point> p = this->shared_from_this();
-    assert( p.unique() );
-    return p;
 }
 
 bool Point::operator == ( const Point& p ) const
@@ -393,10 +398,9 @@ protected:
 public:
     PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, int64_t mapHeight );
     ~PathFinder();
-    typedef std::vector< std::shared_ptr<Point> > Path;
 
-    // returns length of path (excluding start point), or -1 if not found
-    int64_t findPath( const Point& start, const Point& end, Path* pathOut );
+    // returns path information, including start point
+    NodePoint::PathInfo findPath( const Point& start, const Point& end );
 
 };
 
@@ -411,23 +415,19 @@ PathFinder::~PathFinder()
 
 static Point iToPoint( int64_t i, int64_t w )
 {
-    assert( w );
+    assert( i > -1 );
+    assert( w > 0 );
     return Point( i % w, i / w, i );
 }
 
-static bool isPointOnMap( const Point& p, int64_t w, int64_t h )
-{
-    return w > p.x() && p.x() >= 0 &&
-           h > p.y() && p.y() >= 0;
-}
-
-static bool isObstacle( const std::vector<bool>* waypoints, const Point& p, int64_t w, int64_t h )
+static bool isObstacle( const std::vector<bool>* waypoints, const Point& p )
 {
     assert( waypoints );
-    if ( !isPointOnMap( p, w, h ) ) {
+    assert( p.index() > -1 );
+    if ( static_cast<uint64_t>( p.index() ) >= waypoints->size() ) {
         return true;
     }
-    return !waypoints->at( p.x() + w * p.y() );
+    return !waypoints->at( p.index() );
 }
 
 PathFinder::PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, int64_t mapHeight ) :
@@ -444,8 +444,10 @@ PathFinder::PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, in
         TimeStamp ts;
         for ( size_t i = 0; i < waypoints->size(); i++ ) {
             const Point p = iToPoint( i, mapWidth );
-            if ( !isObstacle( waypoints, p, mapWidth, mapHeight ) ) {
-                m_waypointSet.insert( std::make_shared<NodePoint>( p ) );
+            if ( !isObstacle( waypoints, p ) ) {
+                NodePoint::Ptr ptr = std::make_shared<NodePoint>( p );
+                ptr->setDistanceFunction( &Point::manhattan );
+                m_waypointSet.insert( ptr );
             }
         }
     }
@@ -475,22 +477,20 @@ PathFinder::PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, in
     }
 }
 
-int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::Path* pathOut )
+NodePoint::PathInfo PathFinder::findPath( const Point& start, const Point& end )
 {
-    assert( pathOut );
-
     std::lock_guard<std::mutex> lockGuard( m_mutex );
 
     auto startNode = m_waypointSet.find( std::make_shared<NodePoint>( start ) );
     if ( startNode == m_waypointSet.end() ) {
         std::cerr << "Start position is outside of map boundaries or is an obstacle... ";
-        return -1;
+        return NodePoint::PathInfo();
     }
 
     auto endNode = m_waypointSet.find( std::make_shared<NodePoint>( end ) );
     if ( endNode == m_waypointSet.end() ) {
         std::cerr << "End position is outside of map boundaries or is an obstacle" << std::endl;
-        return -1;
+        return NodePoint::PathInfo( std::make_shared<Point>( end ) );
     }
 
     // peeking at the cache
@@ -504,13 +504,10 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
                 break;
             case NodePoint::PathInfo::Found:
                 std::cout << "found, skipping search ";
-                // we do not want the starting point to be included, right?
-                *pathOut = pi.m_path;
-                pathOut->erase( pathOut->begin() );
-                return pathOut->size();
+                return pi;
             case NodePoint::PathInfo::NotFound:
                 std::cout << "path is known to not exists, skipping search ";
-                return -1;
+                return pi;
             default:
                 assert( !"Unhandled enum" );
         }
@@ -524,45 +521,27 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
             std::cout << "yes ";
         } else {
             std::cout << "no, skipping search ";
-            (*startNode)->cacheUnreachable( *endNode );
-            return -1;
+            return NodePoint::PathInfo( (*endNode)->data() );
         }
     }
 
-    // align search order by shortest manhattan distance
-    {
-        std::cout << "Preparing search... ";
-        TimeStamp ts;
-        for ( auto& n : m_waypointSet ) {
-            n->prepareSearch( end, &Point::manhattan );
-        }
-    }
-
-    PathFinder::Path path;
+    NodePoint::PathInfo path;
     {
         std::cout << "Searching... ";
         TimeStamp ts;
         path = (*startNode)->findData( *endNode );
-        *pathOut = path;
     }
 
-    // finalize searching, making cache for next search
+    // finalize searching, clearing minimum distance helper variable
     {
         std::cout << "Postsearch activity... ";
         TimeStamp ts;
         for ( auto& n : m_waypointSet ) {
-            n->completeSearch( path );
+            n->completeSearch();
         }
     }
 
-    if ( pathOut->empty() ) {
-        return -1;
-    }
-
-    // we do not want the starting point to be included, right?
-    pathOut->erase( pathOut->begin() );
-
-    return pathOut->size();
+    return path;
 }
 
 
@@ -571,76 +550,101 @@ int64_t PathFinder::findPath( const Point& start, const Point& end, PathFinder::
 
 
 
-static void printPathInfo( int64_t pathLength, const PathFinder::Path& path )
+static void printPathInfo( const NodePoint::PathInfo& path )
 {
     std::cout << std::endl;
-    if ( pathLength == -1 ) {
-        std::cout << "Path could not be found." << std::endl;
-        return;
-    }
+    switch ( path ) {
+        case NodePoint::PathInfo::Invalid:
+            std::cout << "Path is not valid for some reason" << std::endl;
+            break;
+        case NodePoint::PathInfo::NotFound:
+            std::cout << "Path could not be found" << std::endl;
+            break;
+        case NodePoint::PathInfo::Found:
+            if ( path.size() == 1 ) {
+                std::cout << "Starting point is also destination point." << std::endl;
+                break;
+            }
+            std::cout << "Number of waypoints (including starting position):\t" << path.size() << std::endl;
+            std::cout << "\nWaypoint list (x:y):\n\t";
+            for ( const auto& p : path.m_path ) {
+                assert( p );
+                std::cout << p->x() << ":" << p->y() << ",  ";
+            }
+            std::cout << std::endl;
 
-    if ( pathLength == 0 ) {
-        std::cout << "Starting point is also destination point." << std::endl;
-        return;
-    }
-
-    std::cout << "Number of waypoints (excluding starting position):\t" << pathLength << std::endl;
-    std::cout << "\nWaypoint list (index_x:y):\n\t";
-    for ( const auto& p : path ) {
-        assert( p );
-        std::cout << p->index() << "_" << p->x() << ":" << p->y() << ", ";
-    }
-    std::cout << std::endl;
-
-    std::cout << "\nWaypoint list (just index):\n\t";
-    for ( const auto& p : path ) {
-        assert( p );
-        std::cout << p->index() << ", ";
+            std::cout << "\nWaypoint list (just index):\n\t";
+            for ( const auto& p : path.m_path ) {
+                assert( p );
+                std::cout << p->index() << ", ";
+            }
+            break;
+        default:
+            assert( !"Unhandled enum" );
     }
     std::cout << std::endl;
 }
 
 int main( int argc, char** argv )
 {
-
-    PathFinder::Path path1, path2;
-    int64_t pathLength1=-1, pathLength2=-1;
-
+    const Point startPoint( 0, 0 ), endPoint( 15, 9 );
+#if 0
     {
-        const std::vector<bool> data = {
+        const std::vector<bool> data {
             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1,
+            1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
             1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1,
-            1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1,
+            1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1,
-            1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1
+            1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1
         };
         PathFinder pathFinder( &data, 16, 10 );
-        pathLength1 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path1 );
-        pathLength2 = pathFinder.findPath( Point( 3, 8 ), Point( 15, 9 ), &path2 );
-        pathLength2 = pathFinder.findPath( Point( 3, 8 ), Point( 15, 9 ), &path2 );
+        printPathInfo( pathFinder.findPath( startPoint, endPoint ) );
     }
+#endif
 
-    // extreme stress test?
-//     {
-//         const int64_t size = 274;
-//         std::vector<bool> data2( size * size );
-//         std::fill( data2.begin(), data2.end(), 1 );
-// 
-//         PathFinder pathFinder( &data2, size, size );
-//         pathLength1 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path1 );
-// //         pathLength2 = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ), &path2 );
-//     }
+// extreme stress test?
+#if 0
+    {
+        // may get a crash due to too deep recursion if exceeded stack limit
+        // try: ulimit -s unlimited
+        const int64_t size = 3000;
+        std::vector<bool> data( size * size, 1 );
 
+        PathFinder pathFinder( &data, size, size );
+        printPathInfo( pathFinder.findPath( startPoint, endPoint ) );
+    }
+#endif
 
-    std::cout << "Input data and exact path data will be released at the program exit." << std::endl;
-    printPathInfo( pathLength1, path1 );
-    printPathInfo( pathLength2, path2 );
-//     printPathInfo( pathLength2, path2 );
+// example 1 from requirments
+#if 1
+    {
+        const std::vector<bool> data {
+            1, 1, 1, 1,
+            0, 1, 0, 1,
+            0, 1, 1, 1
+        };
+        PathFinder pathFinder( &data, 4, 3 );
+        printPathInfo( pathFinder.findPath( Point( 0, 0 ), Point( 1, 2 ) ) );
+    }
+#endif
+
+// example 2 from requirments
+#if 0
+    {
+        const std::vector<bool> data {
+            0, 0, 1,
+            0, 1, 1,
+            1, 0, 1
+        };
+        PathFinder pathFinder( &data, 3, 3 );
+        printPathInfo( pathFinder.findPath( Point( 2, 0 ), Point( 0, 2 ) ) );
+    }
+#endif
 
     return 0;
 }
