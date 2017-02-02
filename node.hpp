@@ -5,10 +5,13 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <functional>
 #include <memory>
 #include <set>
 #include <vector>
+
+#include "pathinfo.hpp"
 
 // helper class meant to automatically release lock when leaving scope
 class TravelLock {
@@ -32,63 +35,6 @@ public:
     typedef std::vector<DataPtr> Path;
     typedef std::function<int64_t( const T&, const T& )> DistanceFunction;
 
-    class PathInfo {
-    public:
-        enum Enum { Invalid, Found, NotFound };
-
-        bool m_isShortest;
-        DataPtr m_endPoint;
-        Path m_path;
-
-        PathInfo( const DataPtr& p = nullptr ) : m_isShortest( false ), m_endPoint( p ) {};
-
-        operator Enum() const
-        {
-            if ( !m_endPoint ) {
-                return Invalid;
-            } else if ( m_path.empty() ) {
-                return NotFound;
-            } else {
-                return Found;
-            }
-        }
-
-        // NOTE: 0 as result means PathInfo is invalid or path doesn't exists,
-        // use cast operator to say which one
-        uint64_t score() const
-        {
-            return ( m_endPoint && !m_path.empty() ) ? std::numeric_limits<uint64_t>::max() - m_path.size() : 0;
-        }
-
-        uint64_t size() const
-        {
-            return m_path.size();
-        }
-
-        bool operator < ( const PathInfo& v ) const
-        {
-            if ( !m_endPoint || !v.m_endPoint ) {
-                return false;
-            }
-            return *m_endPoint < *v.m_endPoint;
-        }
-
-        void setPath( const Path& p )
-        {
-            m_path = p;
-        }
-
-        // tells if path is best possible path, equal to manhattan distance from start to end
-        bool isShortest() const
-        {
-            return m_isShortest;
-        }
-
-        void setShortest( bool b ) {
-            m_isShortest = b;
-        }
-    };
-
 protected:
     bool m_isLocked;
     DataPtr m_dataPtr;
@@ -98,7 +44,7 @@ protected:
     int64_t m_minDistance;
 
     // basically a cache of found paths, so we do not have to traverse again this node
-    std::set<Node<T>::PathInfo> m_traveledPathSet;
+    std::set<PathInfo<T>> m_traveledPathSet;
 
     // NOTE: appends vector of nodes which can be traversed,
     // needed to predict if destination point can be founded.
@@ -164,7 +110,7 @@ public:
     };
 
 
-    void cachePath( const Node<T>::PathInfo& p )
+    void cachePath( const PathInfo<T>& p )
     {
         assert( m_traveledPathSet.find( p ) == m_traveledPathSet.end() );
         m_traveledPathSet.insert( p );
@@ -179,7 +125,7 @@ public:
         getTraversableScope( &traversableScope );
         std::sort( traversableScope.begin(), traversableScope.end() );
         const bool found = std::binary_search( traversableScope.begin(), traversableScope.end(), endPoint.get() );
-        const PathInfo unreachablePoint( endPoint->m_dataPtr );
+        const PathInfo<T> unreachablePoint( endPoint->m_dataPtr );
         for ( auto& node : traversableScope ) {
             assert( node );
             // already mark it as not found
@@ -205,25 +151,25 @@ public:
         m_adjecentNodeVector.clear();
     }
 
-    PathInfo findData( const Node<T>::Ptr& p )
+    PathInfo<T> findData( const Node<T>::Ptr& p )
     {
         assert( p );
         assert( m_dataPtr );
 
         if ( isLocked() ) {
-            return PathInfo();
+            return PathInfo<T>();
         }
 
         TravelLock travelLock( m_isLocked );
 
-        PathInfo pi = cacheLookup( p->m_dataPtr );
-        if ( pi != PathInfo::Invalid ) {
+        PathInfo<T> pi = cacheLookup( p->m_dataPtr );
+        if ( pi != PathInfo<T>::Invalid ) {
             return pi;
         }
 
         // is equal
         if ( *m_dataPtr == *(p->m_dataPtr) ) {
-            pi = PathInfo( m_dataPtr );
+            pi = PathInfo<T>( m_dataPtr );
             pi.setPath( { m_dataPtr } );
             pi.setShortest( true );
             cachePath( pi );
@@ -231,11 +177,11 @@ public:
         }
 
         // start searching
-        PathInfo adjecentPath;
+        PathInfo<T> adjecentPath;
         prepareSearch( *(p->m_dataPtr) );
         for ( auto& direction : m_adjecentNodeVector ) {
-            PathInfo tmp = direction->findData( p );
-            if ( tmp == PathInfo::Invalid ) {
+            PathInfo<T> tmp = direction->findData( p );
+            if ( tmp == PathInfo<T>::Invalid ) {
                 continue;
             }
             if ( tmp.isShortest() ) {
@@ -249,12 +195,12 @@ public:
 
         // intrepret search result
         switch ( adjecentPath ) {
-            case PathInfo::Found:
+            case PathInfo<T>::Found:
                 adjecentPath.m_path.insert( adjecentPath.m_path.begin(), m_dataPtr );
                 adjecentPath.setShortest( adjecentPath.size() == static_cast<uint64_t>( m_minDistance + 1 ) );
-            case PathInfo::NotFound:
+            case PathInfo<T>::NotFound:
                 cachePath( adjecentPath );
-            case PathInfo::Invalid:
+            case PathInfo<T>::Invalid:
                 break;
             default:
                 assert( !"Unhandled enum" );
@@ -272,10 +218,10 @@ public:
         m_minDistance = -1;
     }
 
-    Node<T>::PathInfo cacheLookup( const Node<T>::DataPtr& t ) const
+    PathInfo<T> cacheLookup( const Node<T>::DataPtr& t ) const
     {
         const auto it = m_traveledPathSet.find( t );
-        return it != m_traveledPathSet.end() ? *it : PathInfo();
+        return it != m_traveledPathSet.end() ? *it : PathInfo<T>();
     }
 
     // comarsion function for std::set

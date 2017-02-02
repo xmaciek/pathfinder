@@ -112,7 +112,7 @@ public:
     ~PathFinder();
 
     // returns path information, including start point
-    NodePoint::PathInfo findPath( const Point& start, const Point& end );
+    PathInfo<Point> findPath( const Point& start, const Point& end );
 
 };
 
@@ -189,35 +189,35 @@ PathFinder::PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, in
     }
 }
 
-NodePoint::PathInfo PathFinder::findPath( const Point& start, const Point& end )
+PathInfo<Point> PathFinder::findPath( const Point& start, const Point& end )
 {
     std::lock_guard<std::mutex> lockGuard( m_mutex );
 
     auto startNode = m_waypointSet.find( std::make_shared<NodePoint>( start ) );
     if ( startNode == m_waypointSet.end() ) {
         std::cerr << "Start position is outside of map boundaries or is an obstacle... ";
-        return NodePoint::PathInfo();
+        return PathInfo<Point>();
     }
 
     auto endNode = m_waypointSet.find( std::make_shared<NodePoint>( end ) );
     if ( endNode == m_waypointSet.end() ) {
         std::cerr << "End position is outside of map boundaries or is an obstacle" << std::endl;
-        return NodePoint::PathInfo( std::make_shared<Point>( end ) );
+        return PathInfo<Point>( std::make_shared<Point>( end ) );
     }
 
     // peeking at the cache
     {
         std::cout << "Browsing cache... ";
         TimeStamp ts;
-        const NodePoint::PathInfo pi = (*startNode)->cacheLookup( std::make_shared<Point>( end ) );
+        const PathInfo<Point> pi = (*startNode)->cacheLookup( std::make_shared<Point>( end ) );
         switch ( pi ) {
-            case NodePoint::PathInfo::Invalid:
+            case PathInfo<Point>::Invalid:
                 std::cout << "not found ";
                 break;
-            case NodePoint::PathInfo::Found:
+            case PathInfo<Point>::Found:
                 std::cout << "found, skipping search ";
                 return pi;
-            case NodePoint::PathInfo::NotFound:
+            case PathInfo<Point>::NotFound:
                 std::cout << "path is known to not exists, skipping search ";
                 return pi;
             default:
@@ -233,11 +233,11 @@ NodePoint::PathInfo PathFinder::findPath( const Point& start, const Point& end )
             std::cout << "yes ";
         } else {
             std::cout << "no, skipping search ";
-            return NodePoint::PathInfo( (*endNode)->data() );
+            return PathInfo<Point>( (*endNode)->data() );
         }
     }
 
-    NodePoint::PathInfo path;
+    PathInfo<Point> path;
     {
         std::cout << "Searching... ";
         TimeStamp ts;
@@ -262,17 +262,17 @@ NodePoint::PathInfo PathFinder::findPath( const Point& start, const Point& end )
 
 
 
-static void printPathInfo( const NodePoint::PathInfo& path )
+static void printPathInfo( const PathInfo<Point>& path )
 {
     std::cout << std::endl;
     switch ( path ) {
-        case NodePoint::PathInfo::Invalid:
+        case PathInfo<Point>::Invalid:
             std::cout << "Path is not valid for some reason" << std::endl;
             break;
-        case NodePoint::PathInfo::NotFound:
+        case PathInfo<Point>::NotFound:
             std::cout << "Path could not be found" << std::endl;
             break;
-        case NodePoint::PathInfo::Found:
+        case PathInfo<Point>::Found:
             if ( path.size() == 1 ) {
                 std::cout << "Starting point is also destination point." << std::endl;
                 break;
