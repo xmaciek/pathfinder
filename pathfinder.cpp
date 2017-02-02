@@ -140,6 +140,17 @@ protected:
     inline void unlock() { m_isLocked = false; }
     inline bool isLocked() const { return m_isLocked; }
 
+    // because cannot capture 'this' in lambda functions in c++ < c++14
+    bool distancePrepareSearch( const Node<T>::Ptr& a, const Node<T>::Ptr& b, const T& t ) const
+    {
+        assert( a );
+        assert( b );
+        assert( a->m_dataPtr );
+        assert( b->m_dataPtr );
+        assert( m_distanceFunction );
+        return m_distanceFunction( *(a->m_dataPtr), t ) < m_distanceFunction( *(b->m_dataPtr), t );
+    }
+
     // align search order by shortest manhattan distance
     void prepareSearch( const T& t )
     {
@@ -151,15 +162,8 @@ protected:
             return;
         }
         m_minDistance = m_distanceFunction( *m_dataPtr, t );
-        std::sort( m_adjecentNodeVector.begin(), m_adjecentNodeVector.end(), [t,this]( auto& a, auto& b )
-        {
-            assert( a );
-            assert( b );
-            assert( a->m_dataPtr );
-            assert( b->m_dataPtr );
-            assert( this->m_distanceFunction );
-            return this->m_distanceFunction( *(a->m_dataPtr), t ) < this->m_distanceFunction( *(b->m_dataPtr), t );
-        } );
+        std::sort( m_adjecentNodeVector.begin(), m_adjecentNodeVector.end(),
+                   std::bind( &Node<T>::distancePrepareSearch, this, std::placeholders::_1, std::placeholders::_2, t ) );
     }
 
 public:
@@ -584,6 +588,8 @@ static void printPathInfo( const NodePoint::PathInfo& path )
     }
     std::cout << std::endl;
 }
+
+
 
 int main( int argc, char** argv )
 {
