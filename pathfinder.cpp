@@ -25,21 +25,21 @@
 
 class Point {
 protected:
-    int64_t m_x, m_y, m_index;
+    int32_t m_x, m_y, m_index;
 
 public:
-    Point( int64_t x, int64_t y, int64_t index = -1 );
-    inline int64_t x() const { return m_x; }
-    inline int64_t y() const { return m_y; }
-    inline int64_t index() const { return m_index; }
+    Point( int32_t x, int32_t y, int32_t index = -1 );
+    inline int32_t x() const { return m_x; }
+    inline int32_t y() const { return m_y; }
+    inline int32_t index() const { return m_index; }
     bool operator == ( const Point& p ) const;
     bool operator < ( const Point& p ) const;
 
-    static Point fromIndex( int64_t i, int64_t w );
+    static Point fromIndex( int32_t i, int32_t w );
     static int64_t manhattan( const Point& a, const Point& b );
 };
 
-Point::Point( int64_t x, int64_t y, int64_t index ) :
+Point::Point( int32_t x, int32_t y, int32_t index ) :
     m_x( x ),
     m_y( y ),
     m_index( index )
@@ -62,7 +62,7 @@ bool Point::operator < ( const Point& p ) const
     }
 }
 
-Point Point::fromIndex( int64_t index, int64_t width )
+Point Point::fromIndex( int32_t index, int32_t width )
 {
     assert( index > -1 );
     assert( width > 0 );
