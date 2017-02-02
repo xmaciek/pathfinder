@@ -19,7 +19,7 @@
 
 
 
-#include "node.hpp"
+#include "pathfinder.hpp"
 
 
 
@@ -35,6 +35,7 @@ public:
     bool operator == ( const Point& p ) const;
     bool operator < ( const Point& p ) const;
 
+    static Point fromIndex( int64_t i, int64_t w );
     static int64_t manhattan( const Point& a, const Point& b );
 };
 
@@ -61,6 +62,13 @@ bool Point::operator < ( const Point& p ) const
     }
 }
 
+Point Point::fromIndex( int64_t index, int64_t width )
+{
+    assert( index > -1 );
+    assert( width > 0 );
+    return Point( index % width, index / width, index );
+}
+
 int64_t Point::manhattan( const Point& a, const Point& b )
 {
     return abs( a.m_x - b.m_x ) + abs( a.m_y - b.m_y );
@@ -68,195 +76,67 @@ int64_t Point::manhattan( const Point& a, const Point& b )
 
 
 
-// class meant to print duration of code execution
-class TimeStamp {
-public:
-    TimeStamp();
-    ~TimeStamp();
-protected:
-    std::chrono::time_point<std::chrono::system_clock> m_start;
-};
-
-TimeStamp::TimeStamp() : m_start( std::chrono::system_clock::now() ) {}
-TimeStamp::~TimeStamp()
-{
-    const auto duration = std::chrono::system_clock::now() - m_start;
-    std::string unit;
-    uint64_t value = std::chrono::duration_cast<std::chrono::microseconds>( duration ).count();
-    if ( value < 1000 ) {
-        unit = "\u00B5s";
-    } else if ( value >= 1000 && value < 5000000 ) {
-        value = std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count();
-        unit = "ms";
-    } else {
-        value = std::chrono::duration_cast<std::chrono::seconds>( duration ).count();
-        unit = "s";
-    }
-    std::cout << value << unit << std::endl;
-}
-
-
-
-typedef Node<Point> NodePoint;
-
-class PathFinder {
-protected:
-    std::mutex m_mutex;
-    std::set<NodePoint::Ptr, std::function<bool( const NodePoint::Ptr&, const NodePoint::Ptr& )> > m_waypointSet;
-
-    int64_t m_mapWidth;
-    int64_t m_mapHeight;
-
-public:
-    PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, int64_t mapHeight );
-    ~PathFinder();
-
-    // returns path information, including start point
-    PathInfo<Point> findPath( const Point& start, const Point& end );
-
-};
-
-PathFinder::~PathFinder()
-{
-    std::cout << "Releasig node resources... ";
-    TimeStamp ts;
-    for ( auto& n : m_waypointSet ) {
-        n->reset();
-    }
-}
-
-static Point iToPoint( int64_t i, int64_t w )
-{
-    assert( i > -1 );
-    assert( w > 0 );
-    return Point( i % w, i / w, i );
-}
-
-static bool isObstacle( const std::vector<bool>* waypoints, const Point& p )
+static bool isObstacle( const unsigned char* waypoints, int64_t waypointsSize, const Point& p )
 {
     assert( waypoints );
     assert( p.index() > -1 );
-    if ( static_cast<uint64_t>( p.index() ) >= waypoints->size() ) {
+    if ( p.index() >= waypointsSize ) {
         return true;
     }
-    return !waypoints->at( p.index() );
+    return !waypoints[ p.index() ];
 }
 
-PathFinder::PathFinder( const std::vector<bool>* waypoints, int64_t mapWidth, int64_t mapHeight ) :
-    m_waypointSet( &NodePoint::cmpLT ),
-    m_mapWidth( mapWidth ),
-    m_mapHeight( mapHeight )
+bool sortCmp( const std::shared_ptr<Point>& a, const std::shared_ptr<Point>& b )
+{
+    assert( a );
+    assert( b );
+    return *a < *b;
+}
+
+static std::vector< std::shared_ptr<Point> > rawDataToPoints( const unsigned char* waypoints, int64_t waypointsSize, int64_t width )
 {
     assert( waypoints );
-    assert( waypoints->size() == static_cast<uint64_t>( mapWidth * mapHeight ) );
-
-    // convert grid with obstacles into waypoint nodes
-    {
-        std::cout << "Converting data into nodes... ";
-        TimeStamp ts;
-        for ( size_t i = 0; i < waypoints->size(); i++ ) {
-            const Point p = iToPoint( i, mapWidth );
-            if ( !isObstacle( waypoints, p ) ) {
-                NodePoint::Ptr ptr = std::make_shared<NodePoint>( p );
-                ptr->setDistanceFunction( &Point::manhattan );
-                m_waypointSet.insert( ptr );
-            }
+    assert( waypointsSize > 0 );
+    assert( width > 0 );
+    std::vector< std::shared_ptr<Point> > points;
+    int64_t i = 0;
+    while ( i < waypointsSize ) {
+        const Point p( Point::fromIndex( i++, width ) );
+        if ( !isObstacle( waypoints, waypointsSize, p ) ) {
+            points.push_back( std::make_shared<Point>( p ) );
         }
     }
-
-    // connect waypoint nodes
-    {
-        std::cout << "Generating connections... ";
-        TimeStamp ts;
-        for ( int64_t x = 0; x < mapWidth; x++ ) {
-        for ( int64_t y = 0; y < mapHeight; y++ ) {
-            auto node = m_waypointSet.find( std::make_shared<NodePoint>( Point( x, y ) ) );
-            if ( node == m_waypointSet.end() ) {
-                continue;
-            }
-    // explicit manifestation of laziness for writting same code with decorative changes
-    #define ADD_ADJECENT_NODE( x, y ) {\
-        auto nodeToAdd = m_waypointSet.find( std::make_shared<NodePoint>( Point( x, y ) ) ); \
-        if ( nodeToAdd != m_waypointSet.end() ) { (*node)->addAdjecentNode( *nodeToAdd ); } \
-    }
-            ADD_ADJECENT_NODE( x, y - 1 );
-            ADD_ADJECENT_NODE( x, y + 1 );
-            ADD_ADJECENT_NODE( x - 1, y );
-            ADD_ADJECENT_NODE( x + 1, y );
-    #undef ADD_ADJECENT_NODE
-        }
-        }
-    }
+    std::sort( points.begin(), points.end(), &sortCmp );
+    return points;
 }
 
-PathInfo<Point> PathFinder::findPath( const Point& start, const Point& end )
+
+
+// do you have a better name?
+typedef std::vector< std::shared_ptr<Point> > PointHoarder;
+static PointHoarder adjecentFor( const std::shared_ptr<Point>& pointPtr, const PointHoarder& almightyPointHoarder )
 {
-    std::lock_guard<std::mutex> lockGuard( m_mutex );
-
-    auto startNode = m_waypointSet.find( std::make_shared<NodePoint>( start ) );
-    if ( startNode == m_waypointSet.end() ) {
-        std::cerr << "Start position is outside of map boundaries or is an obstacle... ";
-        return PathInfo<Point>();
+    assert( pointPtr );
+    PointHoarder adjecent;
+    PointHoarder::const_iterator it = std::lower_bound( almightyPointHoarder.cbegin(), almightyPointHoarder.cend(), pointPtr, &sortCmp );
+    if ( it == almightyPointHoarder.cend() ) {
+        return adjecent;
     }
 
-    auto endNode = m_waypointSet.find( std::make_shared<NodePoint>( end ) );
-    if ( endNode == m_waypointSet.end() ) {
-        std::cerr << "End position is outside of map boundaries or is an obstacle" << std::endl;
-        return PathInfo<Point>( std::make_shared<Point>( end ) );
-    }
-
-    // peeking at the cache
-    {
-        std::cout << "Browsing cache... ";
-        TimeStamp ts;
-        const PathInfo<Point> pi = (*startNode)->cacheLookup( std::make_shared<Point>( end ) );
-        switch ( pi ) {
-            case PathInfo<Point>::Invalid:
-                std::cout << "not found ";
-                break;
-            case PathInfo<Point>::Found:
-                std::cout << "found, skipping search ";
-                return pi;
-            case PathInfo<Point>::NotFound:
-                std::cout << "path is known to not exists, skipping search ";
-                return pi;
-            default:
-                assert( !"Unhandled enum" );
-        }
-    }
-
-    // checking if the node can be reached from starting position
-    {
-        std::cout << "Checking if destination is reachable... ";
-        TimeStamp ts;
-        if ( (*startNode)->isReachable( *endNode ) ) {
-            std::cout << "yes ";
-        } else {
-            std::cout << "no, skipping search ";
-            return PathInfo<Point>( (*endNode)->data() );
-        }
-    }
-
-    PathInfo<Point> path;
-    {
-        std::cout << "Searching... ";
-        TimeStamp ts;
-        path = (*startNode)->findData( *endNode );
-    }
-
-    // finalize searching, clearing minimum distance helper variable
-    {
-        std::cout << "Postsearch activity... ";
-        TimeStamp ts;
-        for ( auto& n : m_waypointSet ) {
-            n->completeSearch();
-        }
-    }
-
-    return path;
+// explicit manifestation of laziness for writting same code with decorative changes
+#define ADD_ADJECENT_NODE( x_, y_ ) { \
+    std::shared_ptr<Point> ptr = std::make_shared<Point>( pointPtr->x() + x_, pointPtr->y() + y_ ); \
+    if ( std::binary_search( almightyPointHoarder.begin(), almightyPointHoarder.end(), ptr, &sortCmp ) ) { \
+        adjecent.push_back( *std::lower_bound( almightyPointHoarder.cbegin(), almightyPointHoarder.cend(), ptr, &sortCmp ) ); \
+    } \
 }
-
-
+    ADD_ADJECENT_NODE( 0, -1 );
+    ADD_ADJECENT_NODE( 0, 1 );
+    ADD_ADJECENT_NODE( -1, 0 );
+    ADD_ADJECENT_NODE( 1, 0 );
+#undef ADD_ADJECENT_NODE
+    return adjecent;
+}
 
 
 
@@ -301,10 +181,9 @@ static void printPathInfo( const PathInfo<Point>& path )
 
 int main( int argc, char** argv )
 {
-    const Point startPoint( 0, 0 ), endPoint( 15, 9 );
 #if 0
     {
-        const std::vector<bool> data {
+        const std::vector<unsigned char> rawData {
             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
             1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -316,47 +195,56 @@ int main( int argc, char** argv )
             1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1,
             1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1
         };
-        PathFinder pathFinder( &data, 16, 10 );
-        printPathInfo( pathFinder.findPath( startPoint, endPoint ) );
+
+        const std::vector< std::shared_ptr<Point> > data = rawDataToPoints( &rawData[0], rawData.size(), 16 );
+        PathFinder<Point> pathFinder( data, std::bind( &adjecentFor, std::placeholders::_1, data ), &Point::manhattan );
+        PathInfo<Point> pi = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ) );
+        printPathInfo( pi );
     }
 #endif
 
 // extreme stress test?
-#if 0
+#if 1
     {
         // may get a crash due to too deep recursion if exceeded stack limit
         // try: ulimit -s unlimited
-        const int64_t size = 3000;
-        std::vector<bool> data( size * size, 1 );
+        const int64_t size = 1000;
+        std::vector<unsigned char> rawData( size * size, 1 );
 
-        PathFinder pathFinder( &data, size, size );
-        printPathInfo( pathFinder.findPath( startPoint, endPoint ) );
+        const std::vector< std::shared_ptr<Point> > data = rawDataToPoints( &rawData[0], rawData.size(), size );
+        PathFinder<Point> pathFinder( data, std::bind( &adjecentFor, std::placeholders::_1, data ), &Point::manhattan );
+        PathInfo<Point> pi = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ) );
+        printPathInfo( pi );
     }
 #endif
 
 // example 1 from requirments
-#if 1
+#if 0
     {
-        const std::vector<bool> data {
+        const std::vector<unsigned char> rawData {
             1, 1, 1, 1,
             0, 1, 0, 1,
             0, 1, 1, 1
         };
-        PathFinder pathFinder( &data, 4, 3 );
-        printPathInfo( pathFinder.findPath( Point( 0, 0 ), Point( 1, 2 ) ) );
+        const std::vector< std::shared_ptr<Point> > data = rawDataToPoints( &rawData[0], rawData.size(), 4 );
+        PathFinder<Point> pathFinder( data, std::bind( &adjecentFor, std::placeholders::_1, data ), &Point::manhattan );
+        PathInfo<Point> pi = pathFinder.findPath( Point( 0, 0 ), Point( 3, 2 ) );
+        printPathInfo( pi );
     }
 #endif
 
 // example 2 from requirments
 #if 0
     {
-        const std::vector<bool> data {
+        const std::vector<unsigned char> rawData {
             0, 0, 1,
             0, 1, 1,
             1, 0, 1
         };
-        PathFinder pathFinder( &data, 3, 3 );
-        printPathInfo( pathFinder.findPath( Point( 2, 0 ), Point( 0, 2 ) ) );
+        const std::vector< std::shared_ptr<Point> > data = rawDataToPoints( &rawData[0], rawData.size(), 3 );
+        PathFinder<Point> pathFinder( data, std::bind( &adjecentFor, std::placeholders::_1, data ), &Point::manhattan );
+        PathInfo<Point> pi = pathFinder.findPath( Point( 2, 0 ), Point( 2, 2 ) );
+        printPathInfo( pi );
     }
 #endif
 

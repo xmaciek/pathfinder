@@ -34,6 +34,7 @@ public:
     typedef std::shared_ptr<T> DataPtr;
     typedef std::vector<DataPtr> Path;
     typedef std::function<int64_t( const T&, const T& )> DistanceFunction;
+    typedef std::function<bool( const Node<T>::Ptr&, const Node<T>::Ptr& )> CompareFunction;
 
 protected:
     bool m_isLocked;
@@ -95,18 +96,17 @@ protected:
     }
 
 public:
-    Node( const T& p ) :
+    Node( const DataPtr& p ) :
         m_isLocked( false ),
         // copy of data is explicitly stored as shared pointer to keep result values valid after deletion of Node
-        m_dataPtr( std::make_shared<T>( p ) ),
+        m_dataPtr( p ),
         m_minDistance( -1 )
     {}
 
 
-    void addAdjecentNode( Node<T>::Ptr n )
+    void addAdjecentNode( const Node<T>::Ptr& node )
     {
-        assert( n );
-        m_adjecentNodeVector.push_back( n );
+        m_adjecentNodeVector.push_back( node );
     };
 
 
