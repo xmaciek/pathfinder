@@ -1,4 +1,7 @@
 #pragma once
+#if __cplusplus < 201103L
+#error You need a compiller which supports atleast c++11, fully.
+#endif
 
 #include <cassert>
 #include <cstdint>
