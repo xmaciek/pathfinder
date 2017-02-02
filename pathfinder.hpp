@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "node.hpp"
+#include "timestamp.hpp"
 
 template<typename T>
 class PathFinder {
@@ -30,30 +31,36 @@ public:
                 const typename Node<T>::DistanceFunction& distanceFunction ) :
         m_waypointSet( &Node<T>::cmpLT )
     {
-        // convert data into nodes
-        for ( const DataPtr& w : waypoints ) {
-            typename Node<T>::Ptr node = std::make_shared<Node<T>>( w );
-            node->setDistanceFunction( distanceFunction );
-            m_waypointSet.insert( node );
+        // create nodes
+        {
+            DEBUG_DURATION( "Creating nodes and attaching data..." );
+            for ( const DataPtr& w : waypoints ) {
+                typename Node<T>::Ptr node = std::make_shared<Node<T>>( w );
+                node->setDistanceFunction( distanceFunction );
+                m_waypointSet.insert( node );
+            }
         }
 
         // assembly outgoing nodes
-        for ( auto& node : m_waypointSet ) {
-            std::vector<DataPtr> adjecentNodeData = adjNodeFunc( node->data() );
-            for ( DataPtr& d : adjecentNodeData ) {
-                typename WaypointSet::iterator it = m_waypointSet.find( std::make_shared<Node<T>>( d ) );
-                if ( it != m_waypointSet.end() ) {
-                    node->addAdjecentNode( *it );
-                } else {
-                    assert( !"the adjecent node is not known as waypoint" );
+        {
+            DEBUG_DURATION( "Assembling node connections..." );
+            for ( auto& node : m_waypointSet ) {
+                std::vector<DataPtr> adjecentNodeData = adjNodeFunc( node->data() );
+                for ( DataPtr& d : adjecentNodeData ) {
+                    typename WaypointSet::iterator it = m_waypointSet.find( std::make_shared<Node<T>>( d ) );
+                    if ( it != m_waypointSet.end() ) {
+                        node->addAdjecentNode( *it );
+                    } else {
+                        assert( !"the adjecent node is not known as waypoint" );
+                    }
                 }
             }
         }
     }
+
     ~PathFinder()
     {
-        std::cout << "Releasig node resources... ";
-//         TimeStamp ts;
+        DEBUG_DURATION( "Releasig node resources..." );
         for ( auto& n : m_waypointSet ) {
             n->reset();
         }
@@ -65,6 +72,7 @@ public:
         return findPath( std::make_shared<T>( start ), std::make_shared<T>( end ) );
     }
 
+    // returns path information, including start point
     PathInfo<T> findPath( const DataPtr& start, const DataPtr& end )
     {
         std::lock_guard<std::mutex> lockGuard( m_mutex );
@@ -85,18 +93,17 @@ public:
 
         // peeking at the cache
         {
-            std::cout << "Browsing cache... ";
-//             TimeStamp ts;
+            DEBUG_DURATION( "Browsing cache..." );
             const PathInfo<T> pi = startNode->cacheLookup( (*endNodeIt)->data() );
             switch ( pi ) {
                 case PathInfo<T>::Invalid:
-                    std::cout << "not found ";
+                    DEBUG_MESSAGE( "not found " );
                     break;
                 case PathInfo<T>::Found:
-                    std::cout << "found, skipping search ";
+                    DEBUG_MESSAGE( "found, skipping search " );
                     return pi;
                 case PathInfo<T>::NotFound:
-                    std::cout << "path is known to not exists, skipping search ";
+                    DEBUG_MESSAGE( "path is known to not exists, skipping search " );
                     return pi;
                 default:
                     assert( !"Unhandled enum" );
@@ -105,27 +112,25 @@ public:
 
         // checking if the node can be reached from starting position
         {
-            std::cout << "Checking if destination is reachable... ";
-//             TimeStamp ts;
+            DEBUG_DURATION( "Checking if destination is reachable..." );
             if ( (*startNodeIt)->isReachable( *endNodeIt ) ) {
-                std::cout << "yes ";
+                DEBUG_MESSAGE( "yes " );
             } else {
-                std::cout << "no, skipping search ";
+                DEBUG_MESSAGE( "no, skipping search " );
                 return PathInfo<T>( (*endNodeIt)->data() );
             }
         }
 
+        // the searching
         PathInfo<T> path;
         {
-            std::cout << "Searching... ";
-//             TimeStamp ts;
+            DEBUG_DURATION( "Searching..." );
             path = (*startNodeIt)->findData( *endNodeIt );
         }
 
         // finalize searching, clearing minimum distance helper variable
         {
-            std::cout << "Postsearch activity... ";
-//             TimeStamp ts;
+            DEBUG_DURATION( "Postsearch activity..." );
             for ( auto& n : m_waypointSet ) {
                 n->completeSearch();
             }

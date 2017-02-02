@@ -95,6 +95,7 @@ bool sortCmp( const std::shared_ptr<Point>& a, const std::shared_ptr<Point>& b )
 
 static std::vector< std::shared_ptr<Point> > rawDataToPoints( const unsigned char* waypoints, int64_t waypointsSize, int64_t width )
 {
+    DEBUG_DURATION( "Converting raw data into something usable..." );
     assert( waypoints );
     assert( waypointsSize > 0 );
     assert( width > 0 );
@@ -208,7 +209,7 @@ int main( int argc, char** argv )
     {
         // may get a crash due to too deep recursion if exceeded stack limit
         // try: ulimit -s unlimited
-        const int64_t size = 1000;
+        const int64_t size = 3000;
         std::vector<unsigned char> rawData( size * size, 1 );
 
         const std::vector< std::shared_ptr<Point> > data = rawDataToPoints( &rawData[0], rawData.size(), size );
@@ -247,6 +248,5 @@ int main( int argc, char** argv )
         printPathInfo( pi );
     }
 #endif
-
     return 0;
 }
