@@ -118,12 +118,11 @@ typedef std::vector< std::shared_ptr<Point> > PointHoarder;
 static PointHoarder adjecentFor( const std::shared_ptr<Point>& pointPtr, const PointHoarder& almightyPointHoarder )
 {
     assert( pointPtr );
-    PointHoarder adjecent;
-    PointHoarder::const_iterator it = std::lower_bound( almightyPointHoarder.cbegin(), almightyPointHoarder.cend(), pointPtr, &sortCmp );
-    if ( it == almightyPointHoarder.cend() ) {
-        return adjecent;
+    if ( !std::binary_search( almightyPointHoarder.begin(), almightyPointHoarder.end(), pointPtr, &sortCmp ) ) {
+        return PointHoarder();
     }
 
+    PointHoarder adjecent;
 // explicit manifestation of laziness for writting same code with decorative changes
 #define ADD_ADJECENT_NODE( x_, y_ ) { \
     std::shared_ptr<Point> ptr = std::make_shared<Point>( pointPtr->x() + x_, pointPtr->y() + y_ ); \
