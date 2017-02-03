@@ -12,22 +12,23 @@
 
 #include "pathinfo.hpp"
 
-// helper class meant to automatically release lock when leaving scope
-class TravelLock {
+// helper class meant to add locking mechanism for std::lock_guard<T>
+class Lockable {
 public:
-    inline TravelLock( bool& b ) : m_lock( b ) { m_lock = true; }
-    inline ~TravelLock() { m_lock = false; }
+    inline Lockable() : m_lock( false ) {}
 
-protected:
+    inline void lock() { m_lock = true; }
+    inline void unlock() { m_lock = false; }
+    inline bool isLocked() const { return m_lock; }
 
 private:
-    bool& m_lock;
-    TravelLock( const TravelLock& );
-    TravelLock& operator = ( const TravelLock& );
+    bool m_lock;
+    Lockable( const Lockable& );
+    Lockable& operator = ( const Lockable& );
 };
 
 template<typename T>
-class Node {
+class Node : public Lockable {
 public:
     typedef std::shared_ptr<Node<T>> Ptr;
     typedef std::shared_ptr<T> DataPtr;
@@ -36,7 +37,6 @@ public:
     typedef std::function<bool( const Node<T>::Ptr&, const Node<T>::Ptr& )> CompareFunction;
 
 protected:
-    bool m_isLocked;
     DataPtr m_dataPtr;
     std::vector<Node<T>::Ptr> m_adjecentNodeVector;
     DistanceFunction m_distanceFunction;
@@ -63,10 +63,6 @@ protected:
             adj->getTraversableScope( s );
         }
     }
-
-    inline void lock() { m_isLocked = true; }
-    inline void unlock() { m_isLocked = false; }
-    inline bool isLocked() const { return m_isLocked; }
 
     // because cannot capture 'this' in lambda functions in c++ < c++14
     bool distancePrepareSearch( const Node<T>::Ptr& a, const Node<T>::Ptr& b, const T& t ) const
@@ -96,12 +92,10 @@ protected:
 
 public:
     Node( const DataPtr& p ) :
-        m_isLocked( false ),
         // copy of data is explicitly stored as shared pointer to keep result values valid after deletion of Node
         m_dataPtr( p ),
         m_minDistance( -1 )
     {}
-
 
     void addAdjecentNode( const Node<T>::Ptr& node )
     {
@@ -159,7 +153,7 @@ public:
             return PathInfo<T>();
         }
 
-        TravelLock travelLock( m_isLocked );
+        std::lock_guard<Node<T>> travelLock( *this );
 
         PathInfo<T> pi = cacheLookup( p->m_dataPtr );
         if ( pi != PathInfo<T>::Invalid ) {
