@@ -12,6 +12,7 @@
 #include <set>
 #include <vector>
 
+#include "pathfinder_version.h"
 #include "node.hpp"
 #include "timestamp.hpp"
 

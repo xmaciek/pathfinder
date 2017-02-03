@@ -10,6 +10,8 @@
 #include <set>
 #include <vector>
 
+#include "pathfinder_version.h"
+
 #include "pathinfo.hpp"
 
 // helper class meant to add locking mechanism for std::lock_guard<T>

@@ -7,6 +7,8 @@
 #include <limits>
 #include <vector>
 
+#include "pathfinder_version.h"
+
 template<typename T>
 class PathInfo {
 public:

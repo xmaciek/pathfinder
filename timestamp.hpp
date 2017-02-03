@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <iostream>
 
+#include "pathfinder_version.h"
+
 // class meant to print duration of code execution
 class TimeStamp {
 public:
