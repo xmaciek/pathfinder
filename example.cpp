@@ -4,16 +4,10 @@
 
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <iostream>
-#include <limits>
-#include <map>
 #include <memory>
-#include <mutex>
-#include <set>
-#include <utility>
 #include <vector>
 
 
@@ -138,10 +132,6 @@ static PointHoarder adjecentFor( const std::shared_ptr<Point>& pointPtr, const P
     return adjecent;
 }
 
-
-
-
-
 static void printPathInfo( const PathInfo<Point>& path )
 {
     std::cout << std::endl;
@@ -181,7 +171,7 @@ static void printPathInfo( const PathInfo<Point>& path )
 
 int main( int argc, char** argv )
 {
-#if 0
+#if 1
     {
         const std::vector<unsigned char> rawData {
             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -204,7 +194,7 @@ int main( int argc, char** argv )
 #endif
 
 // extreme stress test?
-#if 1
+#if 0
     {
         // may get a crash due to too deep recursion if exceeded stack limit
         // try: ulimit -s unlimited
@@ -228,7 +218,7 @@ int main( int argc, char** argv )
         };
         const std::vector< std::shared_ptr<Point> > data = rawDataToPoints( &rawData[0], rawData.size(), 4 );
         PathFinder<Point> pathFinder( data, std::bind( &adjecentFor, std::placeholders::_1, data ), &Point::manhattan );
-        PathInfo<Point> pi = pathFinder.findPath( Point( 0, 0 ), Point( 3, 2 ) );
+        PathInfo<Point> pi = pathFinder.findPath( Point( 0, 0 ), Point( 1, 2 ) );
         printPathInfo( pi );
     }
 #endif
