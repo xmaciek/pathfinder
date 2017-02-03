@@ -41,7 +41,7 @@
 
 
 
-#include "pathfinder.hpp"
+#include "../include/pathfinder.hpp"
 
 
 
