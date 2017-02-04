@@ -108,7 +108,7 @@ static bool isObstacle( const unsigned char* waypoints, int64_t waypointsSize, c
     return !waypoints[ p.index() ];
 }
 
-bool sortCmp( const std::shared_ptr<Point>& a, const std::shared_ptr<Point>& b )
+static bool sortCmp( const std::shared_ptr<Point>& a, const std::shared_ptr<Point>& b )
 {
     assert( a );
     assert( b );
@@ -196,6 +196,28 @@ static void printPathInfo( const PathInfo<Point>& path )
 }
 
 
+static void visualizePath( const PathInfo<Point>& path, const PointHoarder& data, int64_t width, int64_t height )
+{
+    PointHoarder pathData = path.m_path;
+    std::sort( pathData.begin(), pathData.end(), &sortCmp );
+    const std::string block( "\u2588" );
+    const std::string step( "\u25cf" );
+    const std::string space( " " );
+    for ( auto h = -1; h <= height; h++ ) {
+        for ( auto w = -1; w <= width; w++ ) {
+            std::shared_ptr<Point> p = std::make_shared<Point>( w, h );
+            if ( std::binary_search( pathData.begin(), pathData.end(), p, sortCmp  ) ) {
+                std::cout << step;
+            } else if ( std::binary_search( data.begin(), data.end(), p, sortCmp ) ) {
+                std::cout << space;
+            } else {
+                std::cout << block;
+            }
+        }
+        std::cout << std::endl;
+    }
+}
+
 
 int main( int argc, char** argv )
 {
@@ -218,6 +240,7 @@ int main( int argc, char** argv )
         PathFinder<Point> pathFinder( data, std::bind( &adjecentFor, std::placeholders::_1, data ), &Point::manhattan );
         PathInfo<Point> pi = pathFinder.findPath( Point( 0, 0 ), Point( 15, 9 ) );
         printPathInfo( pi );
+        visualizePath( pi, data, 16, 10 );
     }
 #endif
 
@@ -248,6 +271,7 @@ int main( int argc, char** argv )
         PathFinder<Point> pathFinder( data, std::bind( &adjecentFor, std::placeholders::_1, data ), &Point::manhattan );
         PathInfo<Point> pi = pathFinder.findPath( Point( 0, 0 ), Point( 1, 2 ) );
         printPathInfo( pi );
+        visualizePath( pi, data, 4, 3 );
     }
 #endif
 
@@ -261,8 +285,9 @@ int main( int argc, char** argv )
         };
         const std::vector< std::shared_ptr<Point> > data = rawDataToPoints( &rawData[0], rawData.size(), 3 );
         PathFinder<Point> pathFinder( data, std::bind( &adjecentFor, std::placeholders::_1, data ), &Point::manhattan );
-        PathInfo<Point> pi = pathFinder.findPath( Point( 2, 0 ), Point( 2, 2 ) );
+        PathInfo<Point> pi = pathFinder.findPath( Point( 0, 2 ), Point( 2, 0 ) );
         printPathInfo( pi );
+        visualizePath( pi, data, 3, 3 );
     }
 #endif
     return 0;
