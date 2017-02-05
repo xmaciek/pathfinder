@@ -109,14 +109,14 @@ public:
         typename Node<T>::Ptr startNode = std::make_shared<Node<T>>( start );
         const typename WaypointSet::iterator startNodeIt = m_waypointSet.find( startNode );
         if ( startNodeIt == m_waypointSet.end() ) {
-            std::cerr << "Start position is not known as waypoint";
+            DEBUG_ERROR( "Start position is not known as waypoint" );
             return PathInfo<T>();
         }
 
         typename Node<T>::Ptr endNode = std::make_shared<Node<T>>( end );
         const typename WaypointSet::iterator endNodeIt = m_waypointSet.find( endNode );
         if ( endNodeIt == m_waypointSet.end() ) {
-            std::cerr << "End position is not known as waypoint" << std::endl;
+            DEBUG_ERROR( "End position is not known as waypoint" );
             return PathInfo<T>();
         }
 

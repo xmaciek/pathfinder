@@ -31,6 +31,7 @@
 #ifndef DEBUG
 #define DEBUG_DURATION( msg ) {}
 #define DEBUG_MESSAGE( msg ) {}
+#define DEBUG_ERROR( msg ) {}
 #else
 
 #if __cplusplus < 201103L
@@ -70,5 +71,6 @@ protected:
 
 #define DEBUG_DURATION( msg ) std::cout << msg << " " << std::flush; TimeStamp timeStamp
 #define DEBUG_MESSAGE( msg ) std::cout << msg
+#define DEBUG_ERROR( msg ) std::cerr << msg << std::endl
 
 #endif
