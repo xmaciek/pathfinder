@@ -117,7 +117,7 @@ public:
         const typename WaypointSet::iterator endNodeIt = m_waypointSet.find( endNode );
         if ( endNodeIt == m_waypointSet.end() ) {
             std::cerr << "End position is not known as waypoint" << std::endl;
-            return PathInfo<T>( end );
+            return PathInfo<T>();
         }
 
         // peeking at the cache
