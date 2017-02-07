@@ -177,14 +177,14 @@ static void printPathInfo( const PathInfo<Point>& path )
             }
             std::cout << "Number of waypoints (including starting position):\t" << path.size() << std::endl;
             std::cout << "\nWaypoint list (x:y):\n\t";
-            for ( const auto& p : path.m_path ) {
+            for ( const auto& p : path ) {
                 assert( p );
                 std::cout << p->x() << ":" << p->y() << ",  ";
             }
             std::cout << std::endl;
 
             std::cout << "\nWaypoint list (just index):\n\t";
-            for ( const auto& p : path.m_path ) {
+            for ( const auto& p : path ) {
                 assert( p );
                 std::cout << p->index() << ", ";
             }

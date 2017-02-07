@@ -29,5 +29,5 @@
 #pragma once
 
 #ifndef PATHFIDER_VERSION
-#define PATHFIDER_VERSION 0x01000001
+#define PATHFIDER_VERSION 0x01010000
 #endif

@@ -8,7 +8,7 @@ PathFinder<YourClass> pathFinder( vectorOfYourClassPointers, &YourClass::adjecen
 PathInfo<YourClass> path = pathFinder.findPath( yourClassStartPointPtr, yourClassEndPointPtr );
 switch ( path ) {
     case PathInfo<YourClass>::Found:
-        processPath( path.m_path ); // the .m_path is std::vector<std::shared_ptr<YourClass>>
+        processPath( path.begin(), path.end() ); // the .begin()/.end() returns std::vector<std::shared_ptr<YourClass>>::[const_]iterator
         break;
     case PathInfo<YourClass>::NotFound: // self explainatory
         break;
@@ -18,8 +18,8 @@ switch ( path ) {
 ```
 ###### See `example/example.cpp` for more details.
 
-#### Requirments:
-C++11 compiller
+#### Requirements:
+C++11 compiler
 
 
 ###### This project is under MIT license.

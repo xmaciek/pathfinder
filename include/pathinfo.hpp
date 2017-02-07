@@ -40,6 +40,8 @@
 template<typename T>
 class PathInfo {
 public:
+    typedef typename std::vector<std::shared_ptr<T>>::iterator iterator;
+    typedef typename std::vector<std::shared_ptr<T>>::const_iterator const_iterator;
     enum Enum { Invalid, Found, NotFound };
 
     bool m_isShortest;
@@ -92,5 +94,25 @@ public:
 
     void setShortest( bool b ) {
         m_isShortest = b;
+    }
+
+    iterator begin()
+    {
+        return m_path.begin();
+    }
+
+    iterator end()
+    {
+        return m_path.end();
+    }
+
+    const_iterator begin() const
+    {
+        return m_path.cbegin();
+    }
+
+    const_iterator end() const
+    {
+        return m_path.cend();
     }
 };
